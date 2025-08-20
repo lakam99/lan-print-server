@@ -1,0 +1,134 @@
+
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>LAN Print Server</title>
+  <style>
+    body { font-family: system-ui, sans-serif; margin: 2rem; }
+    .card { max-width: 680px; padding: 1.5rem; border: 1px solid #ddd; border-radius: 12px; box-shadow: 0 2px 10px rgba(0,0,0,.04); }
+    label { display: block; margin-top: .75rem; font-weight: 600; }
+    select, input[type="file"], input[type="number"], input[type="text"] { width: 100%; padding: .6rem; margin-top: .35rem; border: 1px solid #ccc; border-radius: 10px; }
+    button { margin-top: 1rem; padding: .75rem 1rem; border: 0; border-radius: 10px; cursor: pointer; font-weight: 700; }
+    button.primary { background: black; color: white; }
+    .row { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+    .muted { color: #666; font-size: .9rem; }
+    .ok { color: #0a7a2d; }
+    .err { color: #b00020; }
+    .pill { display:inline-block; padding:.2rem .55rem; border-radius:999px; background:#efefef; font-size:.8rem; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>LAN Print Server</h1>
+    <p class="muted">Upload a PDF or image to print on the server’s connected printer.</p>
+
+    <div id="status" class="muted">Loading printers…</div>
+
+    <label for="printer">Printer</label>
+    <select id="printer"></select>
+
+    <div class="row">
+      <div>
+        <label for="copies">Copies</label>
+        <input id="copies" type="number" min="1" value="1" />
+      </div>
+      <div>
+        <label for="token">Access token (if required)</label>
+        <input id="token" type="text" placeholder="Leave blank if not set" />
+      </div>
+    </div>
+
+    <label for="file">File</label>
+    <input id="file" type="file" accept=".pdf,.png,.jpg,.jpeg,.bmp,.tif,.tiff,.txt" />
+
+    <button class="primary" id="printBtn">Print</button>
+
+    <div id="result" style="margin-top:1rem;"></div>
+
+    <p class="muted" style="margin-top:2rem">
+      <span class="pill">Tip</span> If you’re on Windows, installing <a href="https://www.sumatrapdfreader.org/free-pdf-reader.html" target="_blank" rel="noreferrer">SumatraPDF</a> makes printing PDFs/images more reliable.
+    </p>
+  </div>
+
+  <script>
+    const statusEl = document.getElementById('status');
+    const printerSel = document.getElementById('printer');
+    const copiesEl = document.getElementById('copies');
+    const tokenEl = document.getElementById('token');
+    const fileEl = document.getElementById('file');
+    const resultEl = document.getElementById('result');
+    const printBtn = document.getElementById('printBtn');
+
+    async function loadPrinters() {
+      try {
+        const res = await fetch('/api/printers');
+        const data = await res.json();
+        if (!data.ok) throw new Error(data.error || 'Failed to list printers');
+        printerSel.innerHTML = '';
+        const optNone = document.createElement('option');
+        optNone.value = '';
+        optNone.textContent = '(Use default printer)';
+        printerSel.appendChild(optNone);
+        data.printers.forEach(p => {
+          const opt = document.createElement('option');
+          opt.value = p.name;
+          opt.textContent = p.default ? `${p.name} (default)` : p.name;
+          if (p.default) opt.selected = true;
+          printerSel.appendChild(opt);
+        });
+        statusEl.textContent = 'Printers loaded.';
+        statusEl.className = 'ok';
+      } catch (e) {
+        statusEl.textContent = 'Could not load printers. You can still try printing to the default printer.';
+        statusEl.className = 'err';
+        printerSel.innerHTML = '<option value="">(Use default printer)</option>';
+      }
+    }
+
+    loadPrinters();
+
+    printBtn.addEventListener('click', async () => {
+      resultEl.textContent = '';
+      const file = fileEl.files[0];
+      if (!file) {
+        resultEl.textContent = 'Please choose a file to print.';
+        resultEl.className = 'err';
+        return;
+      }
+      const copies = Number(copiesEl.value || '1');
+      const printer = printerSel.value;
+      const token = tokenEl.value.trim();
+
+      const form = new FormData();
+      form.append('file', file);
+      if (printer) form.append('printer', printer);
+      form.append('copies', String(copies));
+      if (token) form.append('token', token);
+
+      printBtn.disabled = true;
+      printBtn.textContent = 'Printing…';
+
+      try {
+        const res = await fetch('/api/print', {
+          method: 'POST',
+          body: form,
+          headers: token ? { 'x-access-token': token } : {}
+        });
+        const data = await res.json();
+        if (data.ok) {
+          resultEl.innerHTML = `<div class="ok">Sent to printer (${data.method}).</div>`;
+        } else {
+          resultEl.innerHTML = `<div class="err">Error: ${data.error || 'Unknown error'}</div>`;
+        }
+      } catch (e) {
+        resultEl.innerHTML = `<div class="err">Network error: ${e.message}</div>`;
+      } finally {
+        printBtn.disabled = false;
+        printBtn.textContent = 'Print';
+      }
+    });
+  </script>
+</body>
+</html>
